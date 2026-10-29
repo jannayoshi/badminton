@@ -1,0 +1,554 @@
+<title>สกอร์แบด</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Sarabun:wght@400;600&display=swap">
+<style>
+/* Layout: full-screen camera feed, two tap halves (one per side of the net), scoreboard on top, controls at the bottom. */
+:root {
+  --ink: #0b120f;
+  --court: #1f6b4a;
+  --shuttle: #f2efe4;
+  --line: #e8d44d;
+  --alert: #ff7a59;
+  --glass: rgba(11, 18, 15, 0.55);
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Sarabun", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--ink); color: var(--shuttle);
+  font-family: var(--font-body); font-size: 15px;
+  overflow: hidden; -webkit-tap-highlight-color: transparent; user-select: none;
+}
+#app { position: relative; height: 100%; width: 100%; overflow: hidden; }
+#cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--ink); }
+#cam.off { display: none; }
+.court-bg {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(var(--line), var(--line)) 50% 0 / 3px 100% no-repeat,
+    linear-gradient(160deg, #123d2b, var(--ink) 70%);
+  opacity: .9;
+}
+.court-bg.hidden { display: none; }
+.shade { position: absolute; inset: 0; background: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.05) 35%, rgba(0,0,0,.05) 60%, rgba(0,0,0,.65)); pointer-events: none; }
+
+.zones { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.zone {
+  appearance: none; border: 0; background: transparent; color: inherit; font: inherit;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 0; cursor: pointer; position: relative;
+}
+.zone:active { background: rgba(232, 212, 77, .12); }
+.zone:focus-visible { outline: 3px solid var(--line); outline-offset: -3px; }
+.zone + .zone { border-left: 2px dashed rgba(242,239,228,.35); }
+.num {
+  font-family: var(--font-display); font-weight: 700; font-size: clamp(110px, 38vw, 230px);
+  line-height: .85; font-variant-numeric: tabular-nums; text-shadow: 0 3px 24px rgba(0,0,0,.6);
+}
+.zone .hint { font-size: 12px; letter-spacing: .08em; opacity: .7; text-transform: uppercase; }
+.serve {
+  height: 26px; padding: 0 12px; border-radius: 13px; display: inline-flex; align-items: center; gap: 6px;
+  background: var(--line); color: var(--ink); font-weight: 600; font-size: 13px; visibility: hidden;
+}
+.zone.serving .serve { visibility: visible; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
+
+.top {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 10px); padding-bottom: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: start;
+}
+.pl { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pl.r { align-items: flex-end; }
+.pl input {
+  width: 100%; max-width: 160px; background: var(--glass); color: var(--shuttle); border: 1px solid rgba(242,239,228,.25);
+  border-radius: 8px; padding: 6px 10px; font: 600 15px var(--font-body); min-width: 0;
+}
+.pl.r input { text-align: right; }
+.pl input:focus-visible { outline: 2px solid var(--line); }
+.games { display: flex; gap: 6px; }
+.pip { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--shuttle); }
+.pip.won { background: var(--line); border-color: var(--line); }
+.mid { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.gno { font-family: var(--font-display); font-weight: 600; font-size: 20px; letter-spacing: .1em; text-transform: uppercase; padding-top: 4px; }
+.chip { height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 600; background: var(--alert); color: var(--ink); display: none; align-items: center; }
+.chip.on { display: inline-flex; }
+
+.bar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); padding-top: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+}
+.btn {
+  appearance: none; border: 1px solid rgba(242,239,228,.3); background: var(--glass); color: var(--shuttle);
+  height: 44px; padding: 0 16px; border-radius: 22px; font: 600 14px var(--font-body); cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.btn:active { transform: scale(.97); }
+.btn:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+.btn.primary { background: var(--line); color: var(--ink); border-color: var(--line); }
+.btn[disabled] { opacity: .4; }
+.msg { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 74px); z-index: 5; text-align: center;
+  padding: 0 max(16px, env(safe-area-inset-left, 0px)); font-size: 13px; opacity: .85; text-wrap: balance; }
+
+.over {
+  position: absolute; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; background: rgba(11,18,15,.82);
+  padding: 24px max(16px, env(safe-area-inset-left, 0px));
+}
+.over.on { display: flex; }
+.card { text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; max-width: 420px; width: 100%; }
+.card h2 { margin: 0; font-family: var(--font-display); font-size: 44px; line-height: 1; text-wrap: balance; }
+.card p { margin: 0; opacity: .8; }
+.hist { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; font-family: var(--font-display); font-size: 28px; font-variant-numeric: tabular-nums; }
+.hist span { padding: 2px 12px; border: 1px solid rgba(242,239,228,.3); border-radius: 8px; }
+#ov { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
+#ov.cal { pointer-events: auto; z-index: 9; cursor: crosshair; }
+.cal-tip { position: absolute; left: 0; right: 0; top: calc(env(safe-area-inset-top, 0px) + 84px); z-index: 10; text-align: center; display: none; pointer-events: none;
+  padding: 0 max(16px, env(safe-area-inset-left, 0px)); }
+.cal-tip.on { display: block; }
+.cal-tip span { display: inline-block; background: var(--line); color: var(--ink); font-weight: 600; padding: 8px 14px; border-radius: 14px; }
+.chip.live { background: var(--line); }
+.pend { position: absolute; left: 0; right: 0; top: 34%; z-index: 7; display: none; justify-content: center; padding: 0 max(16px, env(safe-area-inset-left, 0px)); }
+.pend.on { display: flex; }
+.pcard { background: rgba(11,18,15,.9); border: 2px solid var(--line); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; align-items: center; max-width: 360px; width: 100%; text-align: center; }
+.ptxt { font-family: var(--font-display); font-size: 34px; line-height: 1.05; font-weight: 700; text-wrap: balance; }
+.pwhy { font-size: 13px; opacity: .75; }
+.prow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.ptrack { height: 4px; width: 100%; background: rgba(242,239,228,.2); border-radius: 2px; overflow: hidden; }
+.ptrack i { display: block; height: 100%; width: 100%; background: var(--line); transform-origin: left; }
+@media (prefers-reduced-motion: no-preference) { .btn, .zone { transition: background .15s, transform .1s; } }
+</style>
+
+<div id="app">
+  <video id="cam" class="off" playsinline muted autoplay></video>
+  <div id="bg" class="court-bg"></div>
+  <div class="shade"></div>
+
+  <div class="zones">
+    <button class="zone" id="zl" aria-label="เพิ่มแต้มฝั่งซ้าย">
+      <span class="serve"><span class="dot"></span>เสิร์ฟ · <span class="side">ขวา</span></span>
+      <span class="num" id="nl">0</span>
+      <span class="hint">แตะเพื่อให้แต้ม</span>
+    </button>
+    <button class="zone" id="zr" aria-label="เพิ่มแต้มฝั่งขวา">
+      <span class="serve"><span class="dot"></span>เสิร์ฟ · <span class="side">ขวา</span></span>
+      <span class="num" id="nr">0</span>
+      <span class="hint">แตะเพื่อให้แต้ม</span>
+    </button>
+  </div>
+
+  <div class="top">
+    <div class="pl"><input id="pl0" value="ผู้เล่น A" aria-label="ชื่อฝั่งซ้าย" maxlength="14"><div class="games" id="gl"></div></div>
+    <div class="mid"><div class="gno" id="gno">เกม 1</div><span class="chip" id="chip"></span><span class="chip live" id="live">ออโต้กำลังดู</span></div>
+    <div class="pl r"><input id="pl1" value="ผู้เล่น B" aria-label="ชื่อฝั่งขวา" maxlength="14"><div class="games" id="gr"></div></div>
+  </div>
+
+  <canvas id="ov"></canvas>
+  <div class="cal-tip" id="caltip"><span></span></div>
+  <div class="pend" id="pend">
+    <div class="pcard">
+      <div class="ptxt" id="ptxt"></div>
+      <div class="pwhy" id="pwhy"></div>
+      <div class="ptrack"><i id="pbar"></i></div>
+      <div class="prow">
+        <button class="btn" id="pcancel">ยกเลิก</button>
+        <button class="btn" id="pswap">สลับคนได้แต้ม</button>
+        <button class="btn primary" id="pok">ยืนยันเลย</button>
+      </div>
+    </div>
+  </div>
+  <div class="msg" id="msg"></div>
+
+  <div class="bar">
+    <button class="btn primary" id="bcam">เปิดกล้อง</button>
+    <button class="btn" id="bflip" hidden>สลับกล้อง</button>
+    <button class="btn" id="bcal" hidden>ตั้งสนาม</button>
+    <button class="btn" id="bauto" hidden>ออโต้: ปิด</button>
+    <button class="btn" id="bvoice">เสียง: เปิด</button>
+    <button class="btn" id="bundo">ย้อนแต้ม</button>
+    <button class="btn" id="bnew">แมตช์ใหม่</button>
+  </div>
+
+  <div class="over" id="over">
+    <div class="card">
+      <h2 id="ot"></h2>
+      <div class="hist" id="oh"></div>
+      <p id="op"></p>
+      <button class="btn primary" id="onext">เริ่มเกมถัดไป</button>
+      <button class="btn" id="oundo">ย้อนแต้มล่าสุด</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Rules: first to 21, win by 2, capped at 30. Best of 3 games. In game 3 players change ends at 11.
+  var TARGET = 21, CAP = 30;
+  var S = fresh();
+  var stack = [];
+  var $ = function (id) { return document.getElementById(id); };
+
+  function fresh() {
+    return { names: ["ผู้เล่น A", "ผู้เล่น B"], score: [0, 0], games: [0, 0], results: [], server: 0, game: 1, flip: false, midDone: false, over: false, matchOver: false, winner: -1 };
+  }
+  function snap() { stack.push(JSON.stringify(S)); if (stack.length > 400) stack.shift(); }
+  function undo() {
+    if (!stack.length) return;
+    var keep = S.names.slice();
+    S = JSON.parse(stack.pop());
+    S.names = keep; $("pl0").value = keep[0]; $("pl1").value = keep[1];
+    render();
+  }
+  // screen side -> player index
+  function playerAt(side) { return S.flip ? 1 - side : side; }
+
+  function won(a, b) { return (a >= TARGET && a - b >= 2) || a >= CAP; }
+
+  function point(side) {
+    if (S.over || S.matchOver) return;
+    var p = playerAt(side);
+    snap();
+    var swapped = false;
+    S.score[p]++; S.server = p;
+    if (won(S.score[p], S.score[1 - p])) {
+      S.games[p]++; S.results.push([S.score[0], S.score[1]]);
+      S.over = true; S.winner = p;
+      if (S.games[p] >= 2) S.matchOver = true;
+    } else if (S.game === 3 && !S.midDone && Math.max(S.score[0], S.score[1]) >= 11) {
+      S.midDone = true; S.flip = !S.flip;
+      swapped = true; say("เปลี่ยนข้าง (แต้มถึง 11)");
+    }
+    render(); announce(swapped);
+  }
+  function nextGame() {
+    if (!S.over || S.matchOver) return;
+    snap();
+    var w = S.winner;
+    S.game++; S.score = [0, 0]; S.server = w; S.over = false; S.midDone = false; S.flip = !S.flip;
+    render();
+  }
+
+  var msgT;
+  function say(t) { $("msg").textContent = t; clearTimeout(msgT); msgT = setTimeout(function () { $("msg").textContent = ""; }, 3500); }
+
+  function pips(n) { var h = ""; for (var i = 0; i < 2; i++) h += '<span class="pip' + (i < n ? " won" : "") + '"></span>'; return h; }
+
+  function render() {
+    var L = playerAt(0), R = playerAt(1);
+    $("nl").textContent = S.score[L]; $("nr").textContent = S.score[R];
+    $("pl0").value = S.names[L]; $("pl1").value = S.names[R];
+    $("gl").innerHTML = pips(S.games[L]); $("gr").innerHTML = pips(S.games[R]);
+    $("gno").textContent = "เกม " + Math.min(S.game, 3);
+    [["zl", L], ["zr", R]].forEach(function (z) {
+      var el = $(z[0]), p = z[1], serving = S.server === p && !S.over;
+      el.classList.toggle("serving", serving);
+      // serving from the right court when the server's score is even
+      el.querySelector(".side").textContent = S.score[p] % 2 === 0 ? "ฝั่งขวา" : "ฝั่งซ้าย";
+    });
+    // game point / match point
+    var chip = $("chip"), label = "";
+    if (!S.over) {
+      for (var p = 0; p < 2; p++) {
+        var a = S.score[p], b = S.score[1 - p];
+        if ((a >= TARGET - 1 && a - b >= 1) || a === CAP - 1) { label = (S.games[p] === 1 ? "แมตช์พอยท์ " : "เกมพอยท์ ") + S.names[p]; }
+      }
+    }
+    chip.textContent = label; chip.classList.toggle("on", !!label);
+    // overlay
+    var ov = $("over");
+    ov.classList.toggle("on", S.over);
+    if (S.over) {
+      $("ot").textContent = S.matchOver ? S.names[S.winner] + " ชนะแมตช์" : S.names[S.winner] + " ชนะเกมที่ " + S.game;
+      $("oh").innerHTML = S.results.map(function (r) { return "<span>" + r[0] + "–" + r[1] + "</span>"; }).join("");
+      $("op").textContent = S.matchOver ? "เกม " + S.games[0] + "–" + S.games[1] : "จะสลับข้างให้เอง ผู้ชนะเกมเป็นคนเสิร์ฟ";
+      $("onext").textContent = S.matchOver ? "แมตช์ใหม่" : "เริ่มเกมถัดไป";
+    }
+    $("bundo").disabled = !stack.length;
+  }
+
+  $("zl").addEventListener("click", function () { point(0); });
+  $("zr").addEventListener("click", function () { point(1); });
+  $("bundo").addEventListener("click", undo);
+  $("oundo").addEventListener("click", undo);
+  $("onext").addEventListener("click", function () { if (S.matchOver) newMatch(); else nextGame(); });
+  function newMatch() { var n = S.names; S = fresh(); S.names = n; stack = []; render(); }
+  var confirmT = 0;
+  $("bnew").addEventListener("click", function () {
+    var b = $("bnew");
+    if (!confirmT) { b.textContent = "แตะอีกครั้งเพื่อล้าง"; confirmT = setTimeout(function () { confirmT = 0; b.textContent = "แมตช์ใหม่"; }, 2500); return; }
+    clearTimeout(confirmT); confirmT = 0; b.textContent = "แมตช์ใหม่"; newMatch();
+  });
+  ["pl0", "pl1"].forEach(function (id, side) {
+    $(id).addEventListener("input", function (e) { S.names[playerAt(side)] = e.target.value; });
+    $(id).addEventListener("change", render);
+  });
+
+  // ---- camera ----
+  var stream = null, facing = "environment", video = $("cam");
+  function stopCam() { if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; } }
+  async function startCam() {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("no-api");
+      stopCam();
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing } }, audio: false });
+      video.srcObject = stream; await video.play();
+      video.classList.remove("off"); $("bg").classList.add("hidden");
+      $("bcam").textContent = "ปิดกล้อง"; camUI(true); say("");
+    } catch (e) {
+      stopCam(); video.classList.add("off"); $("bg").classList.remove("hidden");
+      $("bcam").textContent = "เปิดกล้อง"; camUI(false); stopAuto();
+      say("เปิดกล้องไม่ได้ในหน้านี้ แต่ยังนับแต้มได้ตามปกติ ถ้าอยากใช้กล้อง ให้เปิดไฟล์นี้ในเบราว์เซอร์โดยตรง");
+    }
+  }
+  $("bcam").addEventListener("click", function () {
+    if (stream) { stopCam(); video.classList.add("off"); $("bg").classList.remove("hidden"); $("bcam").textContent = "เปิดกล้อง"; camUI(false); stopAuto(); }
+    else startCam();
+  });
+  $("bflip").addEventListener("click", function () { facing = facing === "environment" ? "user" : "environment"; startCam(); });
+
+  // ---- voice ----
+  var voiceOn = true;
+  function speak(t) {
+    if (!voiceOn || !window.speechSynthesis) return;
+    try { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(t); u.lang = "th-TH"; u.rate = 0.95; speechSynthesis.speak(u); } catch (e) {}
+  }
+  function announce(swapped) {
+    if (S.over) {
+      var w = S.winner, l = 1 - w;
+      speak(S.names[w] + (S.matchOver ? " ชนะแมตช์ " : " ชนะเกมที่ " + S.game + " ") + S.score[w] + " ต่อ " + S.score[l]);
+      return;
+    }
+    var s = S.server;
+    speak(S.score[s] + " ต่อ " + S.score[1 - s] + (swapped ? " เปลี่ยนข้าง" : ""));
+  }
+  $("bvoice").addEventListener("click", function () {
+    voiceOn = !voiceOn; $("bvoice").textContent = "เสียง: " + (voiceOn ? "เปิด" : "ปิด");
+    if (voiceOn) speak("เปิดเสียงแล้ว");
+  });
+
+  // ---- auto scoring (experimental) ----
+  // Fixed camera. The player taps the 4 court corners once; a homography turns picture points into court
+  // coordinates (x across, y along, net at y = 0.5). Small fast-moving blobs are tracked as the shuttle; when a
+  // confirmed track disappears, its last point is the landing spot. In = point to the other side, out = point to
+  // the side the shuttle was heading away from. The near-camera player is the left side of the scoreboard.
+  var ov = $("ov"), octx = ov.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  var UNIT = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  var corners = [], H = null, Hinv = null;
+  var calibrating = false, autoOn = false;
+  var GW = 192, GH = 108;
+  var work = document.createElement("canvas"); work.width = GW; work.height = GH;
+  var wctx = work.getContext("2d", { willReadFrequently: true });
+  var prev = null, track = null, dot = null, lastT = 0, cool = 0;
+  var pend = null, pendT = null, pendWhy = "";
+
+  function camUI(on) { $("bflip").hidden = !on; $("bcal").hidden = !on; $("bauto").hidden = !on; }
+
+  function solve(A, b) {
+    var n = 8, i, r, c, k;
+    for (i = 0; i < n; i++) A[i].push(b[i]);
+    for (c = 0; c < n; c++) {
+      var p = c;
+      for (r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+      if (Math.abs(A[p][c]) < 1e-12) return null;
+      var t = A[c]; A[c] = A[p]; A[p] = t;
+      for (r = 0; r < n; r++) {
+        if (r === c) continue;
+        var f = A[r][c] / A[c][c];
+        for (k = c; k <= n; k++) A[r][k] -= f * A[c][k];
+      }
+    }
+    var x = []; for (i = 0; i < n; i++) x.push(A[i][n] / A[i][i]);
+    return x;
+  }
+  function homography(src, dst) {
+    var A = [], b = [];
+    for (var i = 0; i < 4; i++) {
+      var x = src[i][0], y = src[i][1], u = dst[i][0], v = dst[i][1];
+      A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+      A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+    }
+    var h = solve(A, b);
+    return h ? h.concat([1]) : null;
+  }
+  function apply(M, x, y) { var w = M[6] * x + M[7] * y + M[8]; return [(M[0] * x + M[1] * y + M[2]) / w, (M[3] * x + M[4] * y + M[5]) / w]; }
+  function setCourt() {
+    H = corners.length === 4 ? homography(corners, UNIT) : null;
+    Hinv = corners.length === 4 ? homography(UNIT, corners) : null;
+  }
+  try { var saved = JSON.parse(localStorage.getItem("bad-court") || "null"); if (saved && saved.length === 4) { corners = saved; setCourt(); } } catch (e) {}
+
+  // picture (object-fit: cover) <-> normalized video coordinates
+  function geo() {
+    var r = ov.getBoundingClientRect(), vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+    var sc = Math.max(r.width / vw, r.height / vh), dw = vw * sc, dh = vh * sc;
+    return { r: r, dw: dw, dh: dh, ox: (r.width - dw) / 2, oy: (r.height - dh) / 2 };
+  }
+  function s2n(x, y) { var g = geo(); return [((x - g.r.left) - g.ox) / g.dw, ((y - g.r.top) - g.oy) / g.dh]; }
+  function n2s(x, y) { var g = geo(); return [x * g.dw + g.ox, y * g.dh + g.oy]; }
+
+  function draw() {
+    var r = ov.getBoundingClientRect();
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0); octx.clearRect(0, 0, r.width, r.height);
+    if (!stream) return;
+    octx.lineWidth = 2; octx.strokeStyle = "#e8d44d"; octx.fillStyle = "#e8d44d";
+    var pts = corners.map(function (c) { return n2s(c[0], c[1]); });
+    if (pts.length) {
+      octx.beginPath();
+      pts.forEach(function (p, i) { if (i) octx.lineTo(p[0], p[1]); else octx.moveTo(p[0], p[1]); });
+      if (pts.length === 4) octx.closePath();
+      octx.stroke();
+      pts.forEach(function (p) { octx.beginPath(); octx.arc(p[0], p[1], 5, 0, 7); octx.fill(); });
+    }
+    if (Hinv) {
+      var a = apply(Hinv, 0, 0.5), b = apply(Hinv, 1, 0.5), pa = n2s(a[0], a[1]), pb = n2s(b[0], b[1]);
+      octx.save(); octx.setLineDash([8, 6]); octx.strokeStyle = "rgba(242,239,228,.8)";
+      octx.beginPath(); octx.moveTo(pa[0], pa[1]); octx.lineTo(pb[0], pb[1]); octx.stroke(); octx.restore();
+    }
+    if (autoOn && dot) {
+      var q = n2s(dot.x / GW, dot.y / GH);
+      octx.strokeStyle = "#7cffb2"; octx.beginPath(); octx.arc(q[0], q[1], 9, 0, 7); octx.stroke();
+    }
+  }
+  function fit() { var r = ov.getBoundingClientRect(); ov.width = Math.round(r.width * dpr); ov.height = Math.round(r.height * dpr); draw(); }
+  window.addEventListener("resize", fit); fit();
+
+  var CORNER_NAMES = ["มุมไกลซ้าย", "มุมไกลขวา", "มุมใกล้ขวา", "มุมใกล้ซ้าย"];
+  function calTip() { $("caltip").firstElementChild.textContent = "แตะมุมสนาม " + (corners.length + 1) + "/4: " + CORNER_NAMES[corners.length]; }
+  $("bcal").addEventListener("click", function () {
+    if (!stream) return;
+    stopAuto(); corners = []; setCourt(); calibrating = true;
+    ov.classList.add("cal"); $("caltip").classList.add("on"); calTip(); draw();
+  });
+  ov.addEventListener("click", function (e) {
+    if (!calibrating) return;
+    corners.push(s2n(e.clientX, e.clientY));
+    if (corners.length < 4) { calTip(); draw(); return; }
+    calibrating = false; ov.classList.remove("cal"); $("caltip").classList.remove("on");
+    setCourt();
+    try { localStorage.setItem("bad-court", JSON.stringify(corners)); } catch (x) {}
+    say(H ? "ตั้งสนามแล้ว ผู้เล่นฝั่งใกล้กล้องคือฝั่งซ้ายบนสกอร์บอร์ด กด ออโต้ เพื่อเริ่ม" : "คำนวณสนามไม่ได้ ลองตั้งใหม่");
+    draw();
+  });
+
+  function stopAuto() {
+    autoOn = false; track = null; dot = null; prev = null;
+    $("live").classList.remove("on"); $("bauto").textContent = "ออโต้: ปิด";
+    cancelPend(); draw();
+  }
+  $("bauto").addEventListener("click", function () {
+    if (autoOn) { stopAuto(); return; }
+    if (!H) { say("ตั้งสนามก่อน แล้วค่อยเปิดออโต้"); return; }
+    autoOn = true; prev = null; track = null; cool = performance.now() + 1500;
+    $("live").classList.add("on"); $("bauto").textContent = "ออโต้: เปิด";
+    say("วางมือถือให้นิ่ง เห็นสนามทั้งสนาม"); speak("เริ่มนับแต้มอัตโนมัติ");
+  });
+
+  // pending auto point: shown for 3 s so a wrong call can be cancelled or swapped
+  function renderPend() { $("ptxt").textContent = S.names[playerAt(pend)] + " ได้แต้ม"; $("pwhy").textContent = pendWhy; }
+  function armPend() {
+    var bar = $("pbar");
+    bar.style.transition = "none"; bar.style.transform = "scaleX(1)"; void bar.offsetWidth;
+    bar.style.transition = "transform 3s linear"; bar.style.transform = "scaleX(0)";
+    clearTimeout(pendT); pendT = setTimeout(commitPend, 3000);
+  }
+  function showPend(side, why) {
+    if (S.over || S.matchOver || pend !== null) return;
+    pend = side; pendWhy = why; renderPend(); armPend(); $("pend").classList.add("on");
+  }
+  function cancelPend() { clearTimeout(pendT); pend = null; $("pend").classList.remove("on"); }
+  function commitPend() { var s = pend; cancelPend(); if (s !== null) point(s); }
+  $("pcancel").addEventListener("click", cancelPend);
+  $("pok").addEventListener("click", commitPend);
+  $("pswap").addEventListener("click", function () { if (pend === null) return; pend = 1 - pend; pendWhy = "สลับให้แล้ว"; renderPend(); armPend(); });
+
+  // blobs of changed pixels (4-connected flood fill on the small grid)
+  function findBlobs(mask) {
+    var out = [], seen = new Uint8Array(mask.length), stack = [];
+    for (var s = 0; s < mask.length; s++) {
+      if (!mask[s] || seen[s]) continue;
+      var area = 0, sx = 0, sy = 0, x0 = GW, x1 = 0, y0 = GH, y1 = 0;
+      stack.length = 0; stack.push(s); seen[s] = 1;
+      while (stack.length) {
+        var i = stack.pop(), x = i % GW, y = (i / GW) | 0;
+        area++; sx += x; sy += y;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x > 0 && mask[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack.push(i - 1); }
+        if (x < GW - 1 && mask[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack.push(i + 1); }
+        if (y > 0 && mask[i - GW] && !seen[i - GW]) { seen[i - GW] = 1; stack.push(i - GW); }
+        if (y < GH - 1 && mask[i + GW] && !seen[i + GW]) { seen[i + GW] = 1; stack.push(i + GW); }
+      }
+      out.push({ cx: sx / area, cy: sy / area, area: area, w: x1 - x0 + 1, h: y1 - y0 + 1 });
+      if (out.length > 60) break;
+    }
+    return out;
+  }
+
+  function landed(t) {
+    cool = performance.now() + 2500;
+    var c = apply(H, t.lx / GW, t.ly / GH), p = apply(H, t.plx / GW, t.ply / GH);
+    if (c[0] < -0.5 || c[0] > 1.5 || c[1] < -0.5 || c[1] > 1.5) return;
+    var inside = c[0] >= -0.01 && c[0] <= 1.01 && c[1] >= -0.01 && c[1] <= 1.01;
+    if (inside) {
+      // near player = scoreboard side 0, far player = side 1; a landing in one half scores for the other
+      showPend(c[1] < 0.5 ? 0 : 1, c[1] < 0.5 ? "ลูกตกในสนามฝั่งไกล" : "ลูกตกในสนามฝั่งใกล้");
+    } else {
+      var dy = c[1] - p[1];
+      if (Math.abs(dy) < 0.02) dy = c[1] < 0.5 ? -1 : 1;
+      // heading to the far end = hit by the near player, who loses the rally
+      showPend(dy < 0 ? 1 : 0, "ลูกออกนอกสนาม");
+    }
+  }
+
+  function step(blobs, now) {
+    var cands = [], i;
+    for (i = 0; i < blobs.length; i++) { var b = blobs[i]; if (b.area >= 2 && b.area <= 36 && b.w <= 12 && b.h <= 12) cands.push(b); }
+    if (track) {
+      var px = track.x + track.vx, py = track.y + track.vy, best = null, bd = 1e9;
+      cands.forEach(function (c) { var dd = Math.hypot(c.cx - px, c.cy - py); if (dd < bd) { bd = dd; best = c; } });
+      if (best && bd <= 22) {
+        track.vx = best.cx - track.x; track.vy = best.cy - track.y; track.path += Math.hypot(track.vx, track.vy);
+        track.plx = track.lx; track.ply = track.ly; track.lx = best.cx; track.ly = best.cy;
+        track.x = best.cx; track.y = best.cy; track.n++; track.miss = 0; dot = { x: best.cx, y: best.cy };
+        if (!track.ok && track.n >= 6 && track.path >= 30) track.ok = true;
+      } else {
+        track.miss++; track.x = px; track.y = py;
+        if (track.miss > (track.ok ? 10 : 3)) { var t = track; track = null; dot = null; if (t.ok) landed(t); }
+      }
+    } else if (now > cool && pend === null && cands.length && cands.length <= 6) {
+      var c0 = null;
+      for (i = 0; i < cands.length; i++) {
+        var q = apply(H, cands[i].cx / GW, cands[i].cy / GH);
+        if (q[0] > -0.3 && q[0] < 1.3 && q[1] > -0.3 && q[1] < 1.3) { c0 = cands[i]; break; }
+      }
+      if (c0) track = { x: c0.cx, y: c0.cy, lx: c0.cx, ly: c0.cy, plx: c0.cx, ply: c0.cy, vx: 0, vy: 0, n: 1, miss: 0, path: 0, ok: false };
+    }
+  }
+
+  function loop() {
+    requestAnimationFrame(loop);
+    if (!stream) return;
+    if (calibrating || autoOn) draw();
+    if (!autoOn || video.readyState < 2) return;
+    var now = performance.now();
+    if (now - lastT < 66) return;
+    lastT = now;
+    wctx.drawImage(video, 0, 0, GW, GH);
+    var d = wctx.getImageData(0, 0, GW, GH).data, g = new Uint8Array(GW * GH), i, j;
+    for (i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+    if (!prev) { prev = g; return; }
+    var mask = new Uint8Array(g.length);
+    for (i = 0; i < g.length; i++) { var df = g[i] - prev[i]; if (df < 0) df = -df; if (df > 30) mask[i] = 1; }
+    prev = g;
+    step(findBlobs(mask), now);
+  }
+  requestAnimationFrame(loop);
+
+  // keep the screen awake while scoring
+  try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {}
+
+  render();
+})();
+</script>
